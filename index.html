@@ -23,7 +23,7 @@
 
   <script>
     // ==================== KONFIGURASI ====================
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw7_niqatZ1Rj_Y432YcmPL-BUQNd52npK8DrFjnDSZPcpuJfkvJOMM7oOrrw6LpwC-/exec';
+    const SCRIPT_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
     
     // ==================== STATE ====================
     const App = {
@@ -181,8 +181,12 @@
       
       validateTime(timeStr) {
         if (!timeStr) return false;
-        const [hour] = timeStr.split(':').map(Number);
-        return hour >= 6 && hour < 18;
+        const [hour, minute] = timeStr.split(':').map(Number);
+        // Jam kerja 06:00 s/d 18:00
+        if (hour < 6) return false;
+        if (hour > 18) return false;
+        if (hour === 18 && minute > 0) return false;
+        return true;
       },
       
       onSelectKaryawan(value) {
@@ -203,9 +207,9 @@
         
         if (!f.karyawanId) return alert('⚠️ Pilih nama terlebih dahulu!');
         if (!f.waktuKeluar) return alert('⚠️ Isi waktu keluar!');
-        if (!this.validateTime(f.waktuKeluar)) return alert('⚠️ Waktu keluar harus antara jam 06:00 - 18:00!');
+        if (!this.validateTime(f.waktuKeluar)) return alert('⚠️ Waktu keluar harus antara jam 06:00 s/d 18:00!');
         if (!f.waktuMasuk) return alert('⚠️ Isi waktu masuk!');
-        if (!this.validateTime(f.waktuMasuk)) return alert('⚠️ Waktu masuk harus antara jam 06:00 - 18:00!');
+        if (!this.validateTime(f.waktuMasuk)) return alert('⚠️ Waktu masuk harus antara jam 06:00 s/d 18:00!');
         if (f.waktuMasuk <= f.waktuKeluar) return alert('⚠️ Waktu masuk harus lebih besar dari waktu keluar!');
         if (!f.izinPengawas) return alert('⚠️ Pilih status izin pengawas!');
         if (f.izinPengawas === 'tidak') return alert('⚠️ Anda harus izin kepada pengawas lantai terlebih dahulu!');
@@ -585,13 +589,13 @@
                 <label class="block text-xs font-bold text-gray-600 mb-1">WAKTU KELUAR *</label>
                 <input type="time" id="inp-wkeluar" value="${f.waktuKeluar}" min="06:00" max="18:00" 
                   class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
-                <p class="text-xs text-gray-400 mt-0.5">Jam 06:00 - 18:00</p>
+                <p class="text-xs text-gray-400 mt-0.5">Jam 06:00 s/d 18:00</p>
               </div>
               <div>
                 <label class="block text-xs font-bold text-gray-600 mb-1">WAKTU MASUK *</label>
                 <input type="time" id="inp-wmasuk" value="${f.waktuMasuk}" min="06:00" max="18:00"
                   class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
-                <p class="text-xs text-gray-400 mt-0.5">Jam 06:00 - 18:00</p>
+                <p class="text-xs text-gray-400 mt-0.5">Jam 06:00 s/d 18:00</p>
               </div>
             </div>
             
@@ -599,11 +603,11 @@
             <div class="mb-3">
               <label class="block text-xs font-bold text-gray-600 mb-1.5">SUDAH IZIN PENGAWAS LANTAI? *</label>
               <div class="grid grid-cols-2 gap-2">
-                <button type="button" onclick="App.state.form.izinPengawas='ya';App.render();" 
+                <button type="button" onclick="App.syncForm();App.state.form.izinPengawas='ya';App.render();" 
                   class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinPengawas==='ya' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
                   ✓ YA
                 </button>
-                <button type="button" onclick="App.state.form.izinPengawas='tidak';App.render();" 
+                <button type="button" onclick="App.syncForm();App.state.form.izinPengawas='tidak';App.render();" 
                   class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinPengawas==='tidak' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
                   ✗ TIDAK
                 </button>
@@ -615,11 +619,11 @@
             <div class="mb-3">
               <label class="block text-xs font-bold text-gray-600 mb-1.5">SUDAH IZIN KE SUBBAG TURT? *</label>
               <div class="grid grid-cols-2 gap-2">
-                <button type="button" onclick="App.state.form.izinSubbag='sudah';App.render();" 
+                <button type="button" onclick="App.syncForm();App.state.form.izinSubbag='sudah';App.render();" 
                   class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinSubbag==='sudah' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
                   ✓ SUDAH
                 </button>
-                <button type="button" onclick="App.state.form.izinSubbag='belum';App.render();" 
+                <button type="button" onclick="App.syncForm();App.state.form.izinSubbag='belum';App.render();" 
                   class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinSubbag==='belum' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
                   ✗ BELUM
                 </button>
@@ -631,11 +635,11 @@
             <div class="mb-3">
               <label class="block text-xs font-bold text-gray-600 mb-1.5">SUDAH IZIN KE PEGAWAI RUANGAN? *</label>
               <div class="grid grid-cols-2 gap-2">
-                <button type="button" onclick="App.state.form.izinPegawai='sudah';App.render();" 
+                <button type="button" onclick="App.syncForm();App.state.form.izinPegawai='sudah';App.render();" 
                   class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinPegawai==='sudah' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
                   ✓ SUDAH
                 </button>
-                <button type="button" onclick="App.state.form.izinPegawai='belum';App.render();" 
+                <button type="button" onclick="App.syncForm();App.state.form.izinPegawai='belum';App.render();" 
                   class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinPegawai==='belum' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
                   ✗ BELUM
                 </button>
@@ -672,7 +676,7 @@
               <h3 class="font-bold text-blue-700 text-sm mb-2">📋 PANDUAN ABSENSI KELUAR:</h3>
               <ol class="text-xs text-blue-600 space-y-1 list-decimal list-inside">
                 <li>Pilih nama Anda dari daftar (beserta ID)</li>
-                <li>Isi waktu keluar dan waktu kembali (jam 06:00-18:00)</li>
+                <li>Isi waktu keluar dan waktu kembali (jam 06:00 s/d 18:00)</li>
                 <li>Jawab pertanyaan izin (harus YA/SUDAH semua)</li>
                 <li>Isi nama pegawai yang memberi izin</li>
                 <li>Tulis keperluan keluar secara spesifik</li>
