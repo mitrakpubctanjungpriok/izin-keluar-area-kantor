@@ -1,0 +1,1112 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Izin Keluar Area - MITRA KPU Bea Cukai Tanjung Priok</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    * { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+    body { background: linear-gradient(180deg, #e0f4fc 0%, #b8e4f4 50%, #a8d8ea 100%); min-height: 100vh; }
+    .clock { font-family: 'Courier New', monospace; letter-spacing: 2px; }
+    input[type="time"]::-webkit-calendar-picker-indicator { cursor: pointer; }
+    .popup-slide-down { animation: slideDown 0.3s ease-out; }
+    @keyframes slideDown {
+      from { transform: translateY(-100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  </style>
+</head>
+<body>
+  <div id="app"></div>
+
+  <script>
+    // ==================== KONFIGURASI ====================
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw7_niqatZ1Rj_Y432YcmPL-BUQNd52npK8DrFjnDSZPcpuJfkvJOMM7oOrrw6LpwC-/exec';
+    
+    // ==================== STATE ====================
+    const App = {
+      state: {
+        time: new Date(),
+        page: 'home',
+        mode: 'keluar',
+        role: '',
+        tab: 'stats',
+        syncing: false,
+        connected: false,
+        showConnectionPopup: true,
+        notificationEmail: 'mitrakpubctanjungpriok@gmail.com',
+        
+        form: {
+          karyawanId: '',
+          nama: '',
+          waktuKeluar: '',
+          waktuMasuk: '',
+          izinPengawas: '',
+          izinSubbag: '',
+          izinPegawai: '',
+          namaPemberiIzin: '',
+          keperluan: ''
+        },
+        
+        fotoMasuk: null,
+        fotoPreview: null,
+        
+        data: {
+          absensi: [],
+          karyawan: [], // Array of {id, nama}
+          passwords: { admin: 'admin123', pkd: 'pkd123' }
+        },
+        
+        filter: { tanggal: '', nama: '' },
+        
+        // Edit karyawan
+        editKaryawan: null // {id, nama} for editing
+      },
+
+      // ==================== UTILITIES ====================
+      formatTanggal(d) {
+        const hari = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+        const bulan = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+        return `${hari[d.getDay()]}, ${d.getDate()} ${bulan[d.getMonth()]} ${d.getFullYear()}`;
+      },
+      
+      formatJam(d) {
+        return d.toTimeString().slice(0,8);
+      },
+      
+      formatTanggalShort(d) {
+        return `${String(d.getDate()).padStart(2,'0')}/${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;
+      },
+      
+      getKaryawanById(id) {
+        return this.state.data.karyawan.find(k => k.id == id);
+      },
+      
+      getKaryawanByNama(nama) {
+        return this.state.data.karyawan.find(k => k.nama === nama);
+      },
+
+      // ==================== STORAGE ====================
+      saveLocal() {
+        localStorage.setItem('izinKeluar_data', JSON.stringify(this.state.data));
+        localStorage.setItem('izinKeluar_email', this.state.notificationEmail);
+      },
+      
+      loadLocal() {
+        const saved = localStorage.getItem('izinKeluar_data');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          this.state.data = { ...this.state.data, ...parsed };
+        }
+        const savedEmail = localStorage.getItem('izinKeluar_email');
+        if (savedEmail) {
+          this.state.notificationEmail = savedEmail;
+        }
+      },
+
+      // ==================== CONNECTION POPUP ====================
+      showPopup(connected) {
+        this.state.connected = connected;
+        this.state.showConnectionPopup = true;
+        this.render();
+        
+        if (connected) {
+          setTimeout(() => {
+            this.state.showConnectionPopup = false;
+            this.render();
+          }, 3000);
+        }
+      },
+
+      // ==================== GOOGLE SHEETS ====================
+      async syncFromSheets() {
+        if (SCRIPT_URL.includes('YOUR_SCRIPT_ID')) {
+          this.showPopup(false);
+          return;
+        }
+        
+        try {
+          this.state.syncing = true;
+          this.render();
+          
+          const res = await fetch(SCRIPT_URL + '?action=getAll');
+          const data = await res.json();
+          
+          if (data.success) {
+            if (data.absensi) this.state.data.absensi = data.absensi;
+            if (data.karyawan) this.state.data.karyawan = data.karyawan;
+            if (data.passwords) this.state.data.passwords = data.passwords;
+            if (data.email) this.state.notificationEmail = data.email;
+            this.saveLocal();
+            this.showPopup(true);
+          } else {
+            this.showPopup(false);
+          }
+        } catch (e) {
+          console.error('Sync error:', e);
+          this.showPopup(false);
+        } finally {
+          this.state.syncing = false;
+          this.render();
+        }
+      },
+      
+      async saveToSheets(action, payload) {
+        if (SCRIPT_URL.includes('YOUR_SCRIPT_ID')) return;
+        
+        try {
+          await fetch(SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action, ...payload, email: this.state.notificationEmail })
+          });
+        } catch (e) {
+          console.error('Save error:', e);
+        }
+      },
+
+      // ==================== FORM HANDLERS ====================
+      resetForm() {
+        this.state.form = {
+          karyawanId: '', nama: '', waktuKeluar: '', waktuMasuk: '',
+          izinPengawas: '', izinSubbag: '', izinPegawai: '',
+          namaPemberiIzin: '', keperluan: ''
+        };
+        this.state.fotoMasuk = null;
+        this.state.fotoPreview = null;
+      },
+      
+      validateTime(timeStr) {
+        if (!timeStr) return false;
+        const [hour] = timeStr.split(':').map(Number);
+        return hour >= 6 && hour < 18;
+      },
+      
+      onSelectKaryawan(value) {
+        const karyawan = this.getKaryawanById(value);
+        if (karyawan) {
+          this.state.form.karyawanId = karyawan.id;
+          this.state.form.nama = karyawan.nama;
+        }
+        this.render();
+      },
+      
+      async submitKeluar() {
+        const f = this.state.form;
+        
+        if (!this.state.connected || this.state.data.karyawan.length === 0) {
+          return alert('⚠️ Tidak dapat submit! Database tidak terhubung.');
+        }
+        
+        if (!f.karyawanId) return alert('⚠️ Pilih nama terlebih dahulu!');
+        if (!f.waktuKeluar) return alert('⚠️ Isi waktu keluar!');
+        if (!this.validateTime(f.waktuKeluar)) return alert('⚠️ Waktu keluar harus antara jam 06:00 - 18:00!');
+        if (!f.waktuMasuk) return alert('⚠️ Isi waktu masuk!');
+        if (!this.validateTime(f.waktuMasuk)) return alert('⚠️ Waktu masuk harus antara jam 06:00 - 18:00!');
+        if (f.waktuMasuk <= f.waktuKeluar) return alert('⚠️ Waktu masuk harus lebih besar dari waktu keluar!');
+        if (!f.izinPengawas) return alert('⚠️ Pilih status izin pengawas!');
+        if (f.izinPengawas === 'tidak') return alert('⚠️ Anda harus izin kepada pengawas lantai terlebih dahulu!');
+        if (!f.izinSubbag) return alert('⚠️ Pilih status izin Subbag Turt!');
+        if (f.izinSubbag === 'belum') return alert('⚠️ Anda harus izin ke pegawai Subbag Turt!');
+        if (!f.izinPegawai) return alert('⚠️ Pilih status izin pegawai ruangan!');
+        if (f.izinPegawai === 'belum') return alert('⚠️ Anda harus izin ke pegawai ruangan!');
+        if (f.izinPegawai === 'sudah' && !f.namaPemberiIzin.trim()) return alert('⚠️ Isi nama pegawai yang memberi izin!');
+        if (!f.keperluan.trim()) return alert('⚠️ Isi keperluan!');
+        
+        const now = new Date();
+        const absen = {
+          karyawanId: f.karyawanId,
+          nama: f.nama,
+          tipe: 'keluar',
+          waktuKeluar: f.waktuKeluar,
+          waktuMasuk: f.waktuMasuk,
+          izinPengawas: 'Ya',
+          izinSubbag: 'Sudah',
+          izinPegawai: 'Sudah',
+          namaPemberiIzin: f.namaPemberiIzin.toUpperCase(),
+          keperluan: f.keperluan.toUpperCase(),
+          tanggal: this.formatTanggalShort(now),
+          jam: this.formatJam(now),
+          foto: '-'
+        };
+        
+        this.state.data.absensi.unshift(absen);
+        this.saveLocal();
+        await this.saveToSheets('addAbsensi', { data: absen });
+        
+        alert(`✅ ${f.nama} (ID: ${f.karyawanId}) berhasil absen keluar!\n\nWaktu Keluar: ${f.waktuKeluar}\nWaktu Masuk: ${f.waktuMasuk}`);
+        this.resetForm();
+        this.render();
+      },
+      
+      async submitMasuk(karyawanId) {
+        if (!this.state.connected || this.state.data.karyawan.length === 0) {
+          return alert('⚠️ Tidak dapat submit! Database tidak terhubung.');
+        }
+        
+        if (!this.state.fotoMasuk) {
+          return alert('⚠️ Ambil foto terlebih dahulu!');
+        }
+        
+        const karyawan = this.getKaryawanById(karyawanId);
+        if (!karyawan) return alert('⚠️ Karyawan tidak ditemukan!');
+        
+        const now = new Date();
+        const absen = {
+          karyawanId: karyawan.id,
+          nama: karyawan.nama,
+          tipe: 'masuk',
+          waktuKeluar: '-',
+          waktuMasuk: this.formatJam(now).slice(0,5),
+          izinPengawas: '-',
+          izinSubbag: '-',
+          izinPegawai: '-',
+          namaPemberiIzin: '-',
+          keperluan: '-',
+          tanggal: this.formatTanggalShort(now),
+          jam: this.formatJam(now),
+          foto: this.state.fotoMasuk
+        };
+        
+        this.state.data.absensi.unshift(absen);
+        this.saveLocal();
+        await this.saveToSheets('addAbsensi', { data: absen });
+        
+        alert(`✅ ${karyawan.nama} (ID: ${karyawan.id}) berhasil absen masuk!\nFoto tersimpan di database.`);
+        this.state.fotoMasuk = null;
+        this.state.fotoPreview = null;
+        this.render();
+      },
+      
+      removePhoto() {
+        this.state.fotoMasuk = null;
+        this.state.fotoPreview = null;
+        this.render();
+      },
+
+      // ==================== SERVER FUNCTIONS ====================
+      login(pwd) {
+        if (pwd === this.state.data.passwords.admin) {
+          this.state.role = 'admin';
+          this.state.page = 'dashboard';
+          this.state.tab = 'stats';
+          this.syncFromSheets();
+        } else if (pwd === this.state.data.passwords.pkd) {
+          this.state.role = 'pkd';
+          this.state.page = 'dashboard';
+          this.state.tab = 'history';
+          this.syncFromSheets();
+        } else {
+          alert('⚠️ Password salah!');
+          return;
+        }
+        this.render();
+      },
+      
+      logout() {
+        this.state.role = '';
+        this.state.page = 'home';
+        this.state.editKaryawan = null;
+        this.render();
+      },
+      
+      changePassword(newPwd) {
+        if (newPwd.length < 6) return alert('⚠️ Password minimal 6 karakter!');
+        this.state.data.passwords[this.state.role] = newPwd;
+        this.saveLocal();
+        this.saveToSheets('updatePasswords', { passwords: this.state.data.passwords });
+        alert('✅ Password berhasil diubah!');
+        this.render();
+      },
+      
+      changeEmail(newEmail) {
+        if (!newEmail.includes('@')) return alert('⚠️ Email tidak valid!');
+        this.state.notificationEmail = newEmail;
+        this.saveLocal();
+        this.saveToSheets('updateEmail', { email: newEmail });
+        alert('✅ Email notifikasi berhasil diubah!');
+        this.render();
+      },
+      
+      // ==================== KARYAWAN MANAGEMENT ====================
+      addKaryawan(id, nama) {
+        if (!id || !nama.trim()) return alert('⚠️ ID dan Nama tidak boleh kosong!');
+        
+        const existingId = this.state.data.karyawan.find(k => k.id == id);
+        if (existingId) return alert('⚠️ ID sudah digunakan!');
+        
+        const n = nama.toUpperCase().trim();
+        const existingNama = this.state.data.karyawan.find(k => k.nama === n);
+        if (existingNama) return alert('⚠️ Nama sudah ada!');
+        
+        this.state.data.karyawan.push({ id: parseInt(id), nama: n });
+        this.state.data.karyawan.sort((a, b) => a.nama.localeCompare(b.nama));
+        this.saveLocal();
+        this.saveToSheets('updateKaryawan', { karyawan: this.state.data.karyawan });
+        alert('✅ Karyawan berhasil ditambahkan!');
+        this.render();
+      },
+      
+      startEditKaryawan(id) {
+        const karyawan = this.getKaryawanById(id);
+        if (karyawan) {
+          this.state.editKaryawan = { ...karyawan };
+          this.render();
+        }
+      },
+      
+      cancelEditKaryawan() {
+        this.state.editKaryawan = null;
+        this.render();
+      },
+      
+      saveEditKaryawan(newId, newNama) {
+        if (!newId || !newNama.trim()) return alert('⚠️ ID dan Nama tidak boleh kosong!');
+        
+        const oldId = this.state.editKaryawan.id;
+        const n = newNama.toUpperCase().trim();
+        
+        // Check if new ID already exists (excluding current)
+        if (newId != oldId) {
+          const existingId = this.state.data.karyawan.find(k => k.id == newId);
+          if (existingId) return alert('⚠️ ID sudah digunakan!');
+        }
+        
+        // Check if new nama already exists (excluding current)
+        const existingNama = this.state.data.karyawan.find(k => k.nama === n && k.id != oldId);
+        if (existingNama) return alert('⚠️ Nama sudah ada!');
+        
+        // Update karyawan
+        const idx = this.state.data.karyawan.findIndex(k => k.id == oldId);
+        if (idx !== -1) {
+          this.state.data.karyawan[idx] = { id: parseInt(newId), nama: n };
+          this.state.data.karyawan.sort((a, b) => a.nama.localeCompare(b.nama));
+          this.saveLocal();
+          this.saveToSheets('updateKaryawan', { karyawan: this.state.data.karyawan });
+          alert('✅ Karyawan berhasil diupdate!');
+        }
+        
+        this.state.editKaryawan = null;
+        this.render();
+      },
+      
+      deleteKaryawan(id) {
+        const karyawan = this.getKaryawanById(id);
+        if (!karyawan) return;
+        
+        if (!confirm(`Hapus ${karyawan.nama} (ID: ${id}) dari daftar?`)) return;
+        
+        this.state.data.karyawan = this.state.data.karyawan.filter(k => k.id != id);
+        this.saveLocal();
+        this.saveToSheets('updateKaryawan', { karyawan: this.state.data.karyawan });
+        this.render();
+      },
+      
+      deleteAllAbsensi() {
+        if (!confirm('⚠️ HAPUS SEMUA DATA ABSENSI?\n\nTindakan ini tidak dapat dibatalkan!')) return;
+        this.state.data.absensi = [];
+        this.saveLocal();
+        this.saveToSheets('deleteAllAbsensi', {});
+        alert('✅ Semua data berhasil dihapus!');
+        this.render();
+      },
+      
+      exportCSV() {
+        let data = this.getFilteredAbsensi();
+        if (!data.length) return alert('Tidak ada data untuk di-export!');
+        
+        const headers = ['Tanggal','Jam','ID Karyawan','Nama','Tipe','Waktu Keluar','Waktu Masuk','Izin Pengawas','Izin Subbag','Izin Pegawai','Nama Pemberi Izin','Keperluan'];
+        const rows = data.map(a => [
+          a.tanggal, a.jam, a.karyawanId || '-', a.nama, a.tipe.toUpperCase(),
+          a.waktuKeluar, a.waktuMasuk, a.izinPengawas, a.izinSubbag,
+          a.izinPegawai, a.namaPemberiIzin, a.keperluan
+        ]);
+        
+        let csv = headers.join(',') + '\n';
+        rows.forEach(r => { csv += r.map(c => `"${c}"`).join(',') + '\n'; });
+        
+        const blob = new Blob([csv], { type: 'text/csv' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `absensi_${this.formatTanggalShort(new Date()).replace(/\//g,'-')}.csv`;
+        a.click();
+      },
+      
+      getFilteredAbsensi() {
+        let data = this.state.data.absensi;
+        const f = this.state.filter;
+        
+        if (f.tanggal) {
+          const tgl = f.tanggal.split('-').reverse().join('/');
+          data = data.filter(a => a.tanggal === tgl);
+        }
+        if (f.nama) {
+          const search = f.nama.toUpperCase();
+          data = data.filter(a => a.nama.includes(search) || (a.karyawanId && a.karyawanId.toString().includes(search)));
+        }
+        return data;
+      },
+      
+      showPhoto(foto) {
+        if (!foto || foto === '-' || foto === 'Ada') return alert('Tidak ada foto');
+        
+        const modal = document.createElement('div');
+        modal.className = 'fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4';
+        modal.onclick = () => modal.remove();
+        modal.innerHTML = `
+          <div class="relative max-w-lg w-full">
+            <img src="${foto}" class="w-full rounded-lg shadow-2xl" onerror="this.parentElement.innerHTML='<p class=\\'text-white text-center\\'>Foto tidak dapat dimuat</p>'">
+            <button class="absolute top-2 right-2 bg-white rounded-full p-2 shadow-lg hover:bg-gray-100">
+              <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+          </div>
+        `;
+        document.body.appendChild(modal);
+        lucide.createIcons();
+      },
+
+      // ==================== RENDER ====================
+      render() {
+        const app = document.getElementById('app');
+        
+        if (this.state.page === 'home') {
+          app.innerHTML = this.renderHome();
+        } else if (this.state.page === 'login') {
+          app.innerHTML = this.renderLogin();
+        } else if (this.state.page === 'dashboard') {
+          app.innerHTML = this.renderDashboard();
+        }
+        
+        lucide.createIcons();
+        this.attachEvents();
+      },
+      
+      renderConnectionPopup() {
+        if (!this.state.showConnectionPopup && this.state.connected) return '';
+        
+        const isConnected = this.state.connected;
+        
+        return `
+          <div class="fixed top-0 left-0 right-0 z-50 popup-slide-down">
+            <div class="max-w-md mx-auto p-2">
+              <div class="${isConnected ? 'bg-green-500' : 'bg-red-500'} text-white px-4 py-3 rounded-b-xl shadow-lg flex items-center justify-between">
+                <div class="flex items-center gap-2">
+                  <i data-lucide="${isConnected ? 'wifi' : 'wifi-off'}" class="w-5 h-5"></i>
+                  <span class="font-medium text-sm">
+                    ${isConnected ? 'Terhubung ke Database' : 'Tidak Terhubung ke Database'}
+                  </span>
+                </div>
+                ${!isConnected ? `
+                  <button onclick="App.syncFromSheets();" class="bg-white/20 hover:bg-white/30 px-3 py-1 rounded-lg text-xs font-bold">
+                    Coba Lagi
+                  </button>
+                ` : ''}
+              </div>
+            </div>
+          </div>
+        `;
+      },
+      
+      renderHome() {
+        const hasKaryawan = this.state.data.karyawan.length > 0 && this.state.connected;
+        
+        return `
+          ${this.renderConnectionPopup()}
+          
+          <div class="min-h-screen p-3 md:p-4 ${this.state.showConnectionPopup || !this.state.connected ? 'pt-16' : ''}">
+            <div class="max-w-md mx-auto">
+              
+              <!-- Header -->
+              <div class="bg-white rounded-2xl shadow-sm border border-blue-100 p-4 mb-3">
+                <div class="flex justify-between items-start mb-4">
+                  <div class="flex-1 text-center">
+                    <p class="text-xs text-blue-600 font-bold tracking-wide">MITRA KPU BEA CUKAI TANJUNG PRIOK</p>
+                    <h1 class="text-2xl font-extrabold text-gray-800 mt-1">IZIN KELUAR AREA</h1>
+                  </div>
+                  <button onclick="App.state.page='login';App.render();" class="p-2 bg-blue-50 rounded-xl hover:bg-blue-100 transition-colors ml-2">
+                    <i data-lucide="lock" class="w-5 h-5 text-blue-600"></i>
+                  </button>
+                </div>
+                
+                <!-- Clock -->
+                <div class="text-center py-3 bg-gradient-to-r from-blue-50 to-cyan-50 rounded-xl">
+                  <p class="text-gray-500 text-xs">${this.formatTanggal(this.state.time)}</p>
+                  <p id="clock" class="text-2xl font-bold clock text-blue-600 mt-1">${this.formatJam(this.state.time)}</p>
+                </div>
+                
+                <!-- Mode Switch -->
+                <div class="grid grid-cols-2 gap-2 mt-3">
+                  <button onclick="App.state.mode='keluar';App.resetForm();App.render();" 
+                    class="p-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${this.state.mode === 'keluar' ? 'bg-orange-500 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}">
+                    <i data-lucide="log-out" class="w-4 h-4"></i> KELUAR
+                  </button>
+                  <button onclick="App.state.mode='masuk';App.resetForm();App.render();" 
+                    class="p-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all ${this.state.mode === 'masuk' ? 'bg-green-500 text-white shadow-md' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}">
+                    <i data-lucide="log-in" class="w-4 h-4"></i> MASUK
+                  </button>
+                </div>
+              </div>
+              
+              <!-- Form -->
+              ${this.state.mode === 'keluar' ? this.renderFormKeluar(hasKaryawan) : this.renderFormMasuk(hasKaryawan)}
+              
+            </div>
+          </div>
+        `;
+      },
+      
+      renderFormKeluar(hasKaryawan) {
+        const f = this.state.form;
+        const karyawanList = this.state.data.karyawan;
+        
+        return `
+          <div class="bg-white rounded-2xl shadow-sm border border-orange-100 p-4">
+            <h2 class="text-base font-bold text-orange-600 mb-4 flex items-center gap-2">
+              <i data-lucide="clipboard-list" class="w-5 h-5"></i>
+              FORM ABSENSI KELUAR
+            </h2>
+            
+            <!-- Nama -->
+            <div class="mb-3">
+              <label class="block text-xs font-bold text-gray-600 mb-1">NAMA KARYAWAN *</label>
+              <select id="inp-karyawan" class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
+                <option value="">${hasKaryawan ? '-- PILIH NAMA --' : '-- TIDAK TERSEDIA (DATABASE TIDAK TERHUBUNG) --'}</option>
+                ${karyawanList.map(k => `<option value="${k.id}" ${f.karyawanId==k.id?'selected':''}>[${k.id}] ${k.nama}</option>`).join('')}
+              </select>
+            </div>
+            
+            <!-- Waktu -->
+            <div class="grid grid-cols-2 gap-2 mb-3">
+              <div>
+                <label class="block text-xs font-bold text-gray-600 mb-1">WAKTU KELUAR *</label>
+                <input type="time" id="inp-wkeluar" value="${f.waktuKeluar}" min="06:00" max="18:00" 
+                  class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
+                <p class="text-xs text-gray-400 mt-0.5">Jam 06:00 - 18:00</p>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-gray-600 mb-1">WAKTU MASUK *</label>
+                <input type="time" id="inp-wmasuk" value="${f.waktuMasuk}" min="06:00" max="18:00"
+                  class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
+                <p class="text-xs text-gray-400 mt-0.5">Jam 06:00 - 18:00</p>
+              </div>
+            </div>
+            
+            <!-- Izin Pengawas -->
+            <div class="mb-3">
+              <label class="block text-xs font-bold text-gray-600 mb-1.5">SUDAH IZIN PENGAWAS LANTAI? *</label>
+              <div class="grid grid-cols-2 gap-2">
+                <button type="button" onclick="App.state.form.izinPengawas='ya';App.render();" 
+                  class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinPengawas==='ya' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
+                  ✓ YA
+                </button>
+                <button type="button" onclick="App.state.form.izinPengawas='tidak';App.render();" 
+                  class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinPengawas==='tidak' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
+                  ✗ TIDAK
+                </button>
+              </div>
+              ${f.izinPengawas==='tidak' ? '<p class="mt-1.5 p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs">⚠️ Anda HARUS izin kepada pengawas lantai!</p>' : ''}
+            </div>
+            
+            <!-- Izin Subbag -->
+            <div class="mb-3">
+              <label class="block text-xs font-bold text-gray-600 mb-1.5">SUDAH IZIN KE SUBBAG TURT? *</label>
+              <div class="grid grid-cols-2 gap-2">
+                <button type="button" onclick="App.state.form.izinSubbag='sudah';App.render();" 
+                  class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinSubbag==='sudah' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
+                  ✓ SUDAH
+                </button>
+                <button type="button" onclick="App.state.form.izinSubbag='belum';App.render();" 
+                  class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinSubbag==='belum' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
+                  ✗ BELUM
+                </button>
+              </div>
+              ${f.izinSubbag==='belum' ? '<p class="mt-1.5 p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs">⚠️ Anda HARUS izin ke Subbag Turt!</p>' : ''}
+            </div>
+            
+            <!-- Izin Pegawai Ruangan -->
+            <div class="mb-3">
+              <label class="block text-xs font-bold text-gray-600 mb-1.5">SUDAH IZIN KE PEGAWAI RUANGAN? *</label>
+              <div class="grid grid-cols-2 gap-2">
+                <button type="button" onclick="App.state.form.izinPegawai='sudah';App.render();" 
+                  class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinPegawai==='sudah' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
+                  ✓ SUDAH
+                </button>
+                <button type="button" onclick="App.state.form.izinPegawai='belum';App.render();" 
+                  class="p-2.5 rounded-lg font-bold text-sm transition-all ${f.izinPegawai==='belum' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}" ${!hasKaryawan ? 'disabled' : ''}>
+                  ✗ BELUM
+                </button>
+              </div>
+              ${f.izinPegawai==='belum' ? '<p class="mt-1.5 p-2 bg-red-50 border border-red-200 rounded-lg text-red-600 text-xs">⚠️ Anda HARUS izin ke pegawai ruangan!</p>' : ''}
+              ${f.izinPegawai==='sudah' ? `
+                <div class="mt-2">
+                  <label class="block text-xs font-bold text-gray-600 mb-1">NAMA PEGAWAI PEMBERI IZIN *</label>
+                  <input type="text" id="inp-pemberi" value="${f.namaPemberiIzin}" placeholder="CONTOH: PAK BUDI / BU SARI"
+                    class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm uppercase focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none">
+                </div>
+              ` : ''}
+            </div>
+            
+            <!-- Keperluan -->
+            <div class="mb-4">
+              <label class="block text-xs font-bold text-gray-600 mb-1">KEPERLUAN *</label>
+              <textarea id="inp-keperluan" rows="2" placeholder="CONTOH: BELI MAKAN ATAU SEJENISNYA (BERIKAN JAWABAN SPESIFIK)"
+                class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm uppercase focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none resize-none" ${!hasKaryawan ? 'disabled' : ''}>${f.keperluan}</textarea>
+              <p class="mt-1.5 p-2 bg-amber-50 border border-amber-200 rounded-lg text-amber-700 text-xs">
+                ⚠️ Form ini BUKAN untuk keperluan pribadi. Jika ada pertanyaan lebih lanjut, hubungi Admin.
+              </p>
+            </div>
+            
+            <!-- Submit -->
+            <button onclick="App.syncForm();App.submitKeluar();" 
+              class="w-full ${hasKaryawan ? 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700' : 'bg-gray-300 cursor-not-allowed'} text-white p-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md" ${!hasKaryawan ? 'disabled' : ''}>
+              <i data-lucide="send" class="w-5 h-5"></i>
+              SUBMIT ABSENSI KELUAR
+            </button>
+            
+            <!-- Panduan -->
+            <div class="mt-4 p-3 bg-blue-50 border border-blue-100 rounded-xl">
+              <h3 class="font-bold text-blue-700 text-sm mb-2">📋 PANDUAN ABSENSI KELUAR:</h3>
+              <ol class="text-xs text-blue-600 space-y-1 list-decimal list-inside">
+                <li>Pilih nama Anda dari daftar (beserta ID)</li>
+                <li>Isi waktu keluar dan waktu kembali (jam 06:00-18:00)</li>
+                <li>Jawab pertanyaan izin (harus YA/SUDAH semua)</li>
+                <li>Isi nama pegawai yang memberi izin</li>
+                <li>Tulis keperluan keluar secara spesifik</li>
+                <li>Tekan tombol <strong>SUBMIT ABSENSI KELUAR</strong></li>
+              </ol>
+            </div>
+          </div>
+        `;
+      },
+      
+      renderFormMasuk(hasKaryawan) {
+        const karyawanList = this.state.data.karyawan;
+        
+        return `
+          <div class="bg-white rounded-2xl shadow-sm border border-green-100 p-4">
+            <h2 class="text-base font-bold text-green-600 mb-4 flex items-center gap-2">
+              <i data-lucide="log-in" class="w-5 h-5"></i>
+              FORM ABSENSI MASUK
+            </h2>
+            
+            <!-- Foto -->
+            <div class="mb-4">
+              <label class="block text-xs font-bold text-gray-600 mb-2">FOTO BARANG BAWAAN (WAJIB) *</label>
+              <input type="file" accept="image/*" capture="environment" id="inp-foto" class="hidden" ${!hasKaryawan ? 'disabled' : ''}>
+              
+              ${this.state.fotoPreview ? `
+                <div class="relative">
+                  <img src="${this.state.fotoPreview}" class="w-full h-48 object-cover rounded-xl border-2 border-green-400">
+                  <button onclick="App.removePhoto();" 
+                    class="absolute top-2 right-2 bg-red-500 text-white rounded-full p-1.5 shadow-lg hover:bg-red-600 transition-colors">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                  </button>
+                  <div class="absolute bottom-2 left-2 bg-green-500 text-white text-xs px-2 py-1 rounded-lg">
+                    ✓ Foto siap
+                  </div>
+                </div>
+              ` : `
+                <div onclick="${hasKaryawan ? "document.getElementById('inp-foto').click();" : ''}" 
+                  class="border-2 border-dashed ${hasKaryawan ? 'border-green-300 cursor-pointer hover:border-green-400 hover:bg-green-50' : 'border-gray-300 cursor-not-allowed'} rounded-xl p-6 text-center transition-all">
+                  <div class="${hasKaryawan ? 'text-green-500' : 'text-gray-400'}">
+                    <i data-lucide="camera" class="w-10 h-10 mx-auto mb-2"></i>
+                    <p class="font-medium text-sm">${hasKaryawan ? 'Klik untuk ambil foto' : 'Tidak tersedia (database tidak terhubung)'}</p>
+                    <p class="text-xs text-gray-400 mt-1">Foto barang yang dibawa masuk</p>
+                  </div>
+                </div>
+              `}
+            </div>
+            
+            <!-- Daftar Nama -->
+            <div class="mb-3">
+              <label class="block text-xs font-bold text-gray-600 mb-2">PILIH NAMA UNTUK ABSEN MASUK:</label>
+              ${!hasKaryawan ? '<p class="text-xs text-red-500 mb-2">⚠️ Daftar nama tidak tersedia karena database tidak terhubung</p>' : ''}
+            </div>
+            <div class="grid grid-cols-1 gap-1.5 max-h-64 overflow-y-auto pr-1">
+              ${hasKaryawan ? karyawanList.map(k => `
+                <button onclick="App.submitMasuk(${k.id})" 
+                  class="p-2.5 bg-gray-50 border border-green-200 rounded-lg font-semibold text-xs text-gray-700 flex items-center justify-between hover:bg-green-50 hover:border-green-400 transition-all">
+                  <span class="flex items-center gap-2">
+                    <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono text-xs">${k.id}</span>
+                    <span class="truncate">${k.nama}</span>
+                  </span>
+                  <i data-lucide="check-circle" class="w-4 h-4 text-green-500 flex-shrink-0"></i>
+                </button>
+              `).join('') : '<p class="col-span-2 text-center text-gray-400 py-8">Daftar nama kosong</p>'}
+            </div>
+            
+            <!-- Panduan -->
+            <div class="mt-4 p-3 bg-green-50 border border-green-100 rounded-xl">
+              <h3 class="font-bold text-green-700 text-sm mb-2">📋 PANDUAN ABSENSI MASUK:</h3>
+              <ol class="text-xs text-green-600 space-y-1 list-decimal list-inside">
+                <li>Ambil foto barang/bawaan yang dibawa (WAJIB)</li>
+                <li>Preview foto akan muncul, bisa dihapus dengan tombol X</li>
+                <li>Cari dan klik nama Anda di daftar (lihat ID)</li>
+                <li>Absensi akan langsung tersimpan</li>
+              </ol>
+            </div>
+          </div>
+        `;
+      },
+      
+      renderLogin() {
+        return `
+          <div class="min-h-screen flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-lg border border-blue-100 p-6 w-full max-w-sm">
+              <div class="text-center mb-5">
+                <div class="w-14 h-14 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-3">
+                  <i data-lucide="shield-check" class="w-7 h-7 text-blue-600"></i>
+                </div>
+                <h2 class="text-lg font-bold text-gray-800">LOGIN SERVER</h2>
+                <p class="text-xs text-gray-500 mt-1">Masuk sebagai Admin atau PKD</p>
+              </div>
+              
+              <input type="password" id="inp-pwd" placeholder="MASUKKAN PASSWORD" 
+                class="w-full p-3 bg-gray-50 border border-gray-200 rounded-xl text-center text-sm mb-3 focus:border-blue-400 focus:ring-2 focus:ring-blue-100 outline-none">
+              
+              <button onclick="App.login(document.getElementById('inp-pwd').value);" 
+                class="w-full bg-blue-600 text-white p-3 rounded-xl font-bold mb-2 hover:bg-blue-700 transition-colors">
+                LOGIN
+              </button>
+              
+              <button onclick="App.state.page='home';App.render();" 
+                class="w-full bg-gray-100 text-gray-600 p-3 rounded-xl font-bold hover:bg-gray-200 transition-colors">
+                KEMBALI
+              </button>
+            </div>
+          </div>
+        `;
+      },
+      
+      renderDashboard() {
+        return `
+          <div class="min-h-screen bg-gradient-to-b from-gray-50 to-gray-100">
+            <!-- Header -->
+            <div class="bg-white shadow-sm border-b sticky top-0 z-10">
+              <div class="max-w-4xl mx-auto p-3">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <h1 class="text-base font-bold text-gray-800">Dashboard Server</h1>
+                    <span class="text-xs font-bold px-2 py-0.5 rounded ${this.state.role==='admin' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">
+                      ${this.state.role.toUpperCase()}
+                    </span>
+                  </div>
+                  <div class="flex gap-2">
+                    <button onclick="App.syncFromSheets();" class="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors" title="Refresh">
+                      <i data-lucide="refresh-cw" class="w-4 h-4 text-gray-600 ${this.state.syncing?'animate-spin':''}"></i>
+                    </button>
+                    <button onclick="App.logout();" class="bg-red-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-red-600 transition-colors">
+                      LOGOUT
+                    </button>
+                  </div>
+                </div>
+                
+                <!-- Tabs -->
+                <div class="flex gap-1 mt-3">
+                  ${this.state.role==='admin' ? `
+                    <button onclick="App.state.tab='stats';App.render();" 
+                      class="px-3 py-1.5 rounded-lg font-bold text-xs transition-colors ${this.state.tab==='stats' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+                      Statistik
+                    </button>
+                  ` : ''}
+                  <button onclick="App.state.tab='history';App.render();" 
+                    class="px-3 py-1.5 rounded-lg font-bold text-xs transition-colors ${this.state.tab==='history' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+                    Riwayat
+                  </button>
+                  <button onclick="App.state.tab='settings';App.render();" 
+                    class="px-3 py-1.5 rounded-lg font-bold text-xs transition-colors ${this.state.tab==='settings' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}">
+                    Pengaturan
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Content -->
+            <div class="max-w-4xl mx-auto p-3">
+              ${this.state.tab==='stats' && this.state.role==='admin' ? this.renderStats() : ''}
+              ${this.state.tab==='history' ? this.renderHistory() : ''}
+              ${this.state.tab==='settings' ? this.renderSettings() : ''}
+            </div>
+          </div>
+        `;
+      },
+      
+      renderStats() {
+        const d = this.state.data.absensi;
+        const today = this.formatTanggalShort(new Date());
+        const todayData = d.filter(a => a.tanggal === today);
+        const masuk = d.filter(a => a.tipe==='masuk').length;
+        const keluar = d.filter(a => a.tipe==='keluar').length;
+        const unik = [...new Set(d.map(a => a.nama))].length;
+        
+        return `
+          <div class="grid grid-cols-2 gap-2 mb-3">
+            <div class="bg-white rounded-xl p-3 border-l-4 border-blue-500">
+              <p class="text-gray-500 text-xs">Total Absensi</p>
+              <p class="text-2xl font-bold text-gray-800">${d.length}</p>
+            </div>
+            <div class="bg-white rounded-xl p-3 border-l-4 border-green-500">
+              <p class="text-gray-500 text-xs">Absen Masuk</p>
+              <p class="text-2xl font-bold text-green-600">${masuk}</p>
+            </div>
+            <div class="bg-white rounded-xl p-3 border-l-4 border-orange-500">
+              <p class="text-gray-500 text-xs">Absen Keluar</p>
+              <p class="text-2xl font-bold text-orange-600">${keluar}</p>
+            </div>
+            <div class="bg-white rounded-xl p-3 border-l-4 border-purple-500">
+              <p class="text-gray-500 text-xs">Karyawan Unik</p>
+              <p class="text-2xl font-bold text-purple-600">${unik}</p>
+            </div>
+          </div>
+          
+          <div class="bg-white rounded-xl p-4">
+            <h3 class="font-bold text-gray-800 text-sm mb-3">Info Database</h3>
+            <div class="grid grid-cols-3 gap-2 text-center">
+              <div class="bg-gray-50 p-2 rounded-lg">
+                <p class="text-xs text-gray-500">Total Karyawan</p>
+                <p class="text-lg font-bold">${this.state.data.karyawan.length}</p>
+              </div>
+              <div class="bg-gray-50 p-2 rounded-lg">
+                <p class="text-xs text-gray-500">Hari Ini</p>
+                <p class="text-lg font-bold">${todayData.length}</p>
+              </div>
+              <div class="bg-gray-50 p-2 rounded-lg">
+                <p class="text-xs text-gray-500">Status</p>
+                <p class="text-sm font-bold ${this.state.connected ? 'text-green-600' : 'text-red-500'}">${this.state.connected ? 'Online' : 'Offline'}</p>
+              </div>
+            </div>
+          </div>
+        `;
+      },
+      
+      renderHistory() {
+        const data = this.getFilteredAbsensi();
+        
+        return `
+          <div class="bg-white rounded-xl overflow-hidden">
+            <!-- Filter -->
+            <div class="p-3 border-b flex flex-wrap gap-2 items-center">
+              <input type="date" id="filter-tgl" value="${this.state.filter.tanggal}" class="p-2 border rounded-lg text-xs">
+              <input type="text" id="filter-nama" value="${this.state.filter.nama}" placeholder="Cari ID/nama..." class="p-2 border rounded-lg text-xs flex-1 min-w-24">
+              <button onclick="App.applyFilter();" class="bg-blue-500 text-white px-3 py-2 rounded-lg text-xs font-bold">Cari</button>
+              <button onclick="App.state.filter={tanggal:'',nama:''};App.render();" class="text-gray-500 text-xs">Reset</button>
+              <button onclick="App.exportCSV();" class="bg-green-500 text-white px-3 py-2 rounded-lg text-xs font-bold ml-auto">
+                <i data-lucide="download" class="w-3 h-3 inline"></i> CSV
+              </button>
+            </div>
+            
+            <!-- Table -->
+            <div class="overflow-x-auto">
+              <table class="w-full text-xs">
+                <thead class="bg-gray-50">
+                  <tr>
+                    <th class="px-2 py-2 text-left font-bold">Tanggal</th>
+                    <th class="px-2 py-2 text-left font-bold">ID</th>
+                    <th class="px-2 py-2 text-left font-bold">Nama</th>
+                    <th class="px-2 py-2 text-left font-bold">Tipe</th>
+                    <th class="px-2 py-2 text-left font-bold">Waktu</th>
+                    <th class="px-2 py-2 text-left font-bold">Keperluan</th>
+                    <th class="px-2 py-2 text-left font-bold">Foto</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y">
+                  ${data.length === 0 ? `
+                    <tr><td colspan="7" class="px-2 py-8 text-center text-gray-400">Tidak ada data</td></tr>
+                  ` : data.slice(0,50).map(a => `
+                    <tr class="hover:bg-gray-50">
+                      <td class="px-2 py-2">${a.tanggal}<br><span class="text-gray-400">${a.jam}</span></td>
+                      <td class="px-2 py-2"><span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono text-xs">${a.karyawanId || '-'}</span></td>
+                      <td class="px-2 py-2 font-medium">${a.nama}</td>
+                      <td class="px-2 py-2">
+                        <span class="px-1.5 py-0.5 rounded text-xs font-bold ${a.tipe==='masuk' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">
+                          ${a.tipe.toUpperCase()}
+                        </span>
+                      </td>
+                      <td class="px-2 py-2">${a.tipe==='keluar' ? a.waktuKeluar+' - '+a.waktuMasuk : a.waktuMasuk}</td>
+                      <td class="px-2 py-2 max-w-20 truncate" title="${a.keperluan}">${a.keperluan}</td>
+                      <td class="px-2 py-2">
+                        ${a.foto && a.foto !== '-' && a.foto.startsWith('data:image') ? 
+                          `<button onclick="App.showPhoto('${a.foto.replace(/'/g, "\\'")}')" class="bg-blue-500 text-white px-2 py-1 rounded text-xs hover:bg-blue-600">📷 Lihat</button>` : 
+                          '<span class="text-gray-400">-</span>'}
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+            ${data.length > 50 ? `<div class="p-2 text-center text-xs text-gray-500">Menampilkan 50 dari ${data.length} data</div>` : ''}
+          </div>
+        `;
+      },
+      
+      renderSettings() {
+        const editMode = this.state.editKaryawan !== null;
+        
+        return `
+          <div class="space-y-3">
+            ${this.state.role === 'admin' ? `
+              <!-- Email -->
+              <div class="bg-blue-600 text-white rounded-xl p-4">
+                <h3 class="font-bold text-sm mb-2">📧 Email Notifikasi</h3>
+                <p class="text-blue-100 text-xs mb-2">Notifikasi absensi dikirim ke:</p>
+                <p class="font-bold text-sm mb-3">${this.state.notificationEmail}</p>
+                <div class="flex gap-2">
+                  <input type="email" id="new-email" placeholder="Email baru" class="flex-1 p-2 rounded-lg text-gray-800 text-xs">
+                  <button onclick="App.changeEmail(document.getElementById('new-email').value);" class="bg-white text-blue-600 px-4 py-2 rounded-lg font-bold text-xs hover:bg-blue-50 transition-colors">
+                    Simpan
+                  </button>
+                </div>
+              </div>
+            ` : ''}
+            
+            <!-- Password -->
+            <div class="bg-white rounded-xl p-4">
+              <h3 class="font-bold text-gray-800 text-sm mb-3">🔐 Ubah Password ${this.state.role.toUpperCase()}</h3>
+              <div class="flex gap-2">
+                <input type="password" id="new-pwd" placeholder="Password baru (min 6)" class="flex-1 p-2 border rounded-lg text-xs">
+                <button onclick="App.changePassword(document.getElementById('new-pwd').value);" class="bg-blue-600 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-blue-700 transition-colors">
+                  Simpan
+                </button>
+              </div>
+            </div>
+            
+            ${this.state.role === 'admin' ? `
+              <!-- Karyawan -->
+              <div class="bg-white rounded-xl p-4">
+                <h3 class="font-bold text-gray-800 text-sm mb-3">👥 Kelola Karyawan (${this.state.data.karyawan.length})</h3>
+                
+                <!-- Add New -->
+                <div class="flex gap-2 mb-3">
+                  <input type="number" id="new-emp-id" placeholder="ID" class="w-20 p-2 border rounded-lg text-xs">
+                  <input type="text" id="new-emp-nama" placeholder="Nama karyawan" class="flex-1 p-2 border rounded-lg text-xs uppercase">
+                  <button onclick="App.addKaryawan(document.getElementById('new-emp-id').value, document.getElementById('new-emp-nama').value);document.getElementById('new-emp-id').value='';document.getElementById('new-emp-nama').value='';" class="bg-green-500 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-green-600 transition-colors">
+                    Tambah
+                  </button>
+                </div>
+                
+                <!-- Edit Form (if editing) -->
+                ${editMode ? `
+                  <div class="mb-3 p-3 bg-yellow-50 border border-yellow-200 rounded-lg">
+                    <p class="text-xs font-bold text-yellow-700 mb-2">✏️ Edit Karyawan</p>
+                    <div class="flex gap-2">
+                      <input type="number" id="edit-emp-id" value="${this.state.editKaryawan.id}" class="w-20 p-2 border rounded-lg text-xs">
+                      <input type="text" id="edit-emp-nama" value="${this.state.editKaryawan.nama}" class="flex-1 p-2 border rounded-lg text-xs uppercase">
+                      <button onclick="App.saveEditKaryawan(document.getElementById('edit-emp-id').value, document.getElementById('edit-emp-nama').value);" class="bg-blue-500 text-white px-3 py-2 rounded-lg font-bold text-xs">Simpan</button>
+                      <button onclick="App.cancelEditKaryawan();" class="bg-gray-300 text-gray-700 px-3 py-2 rounded-lg font-bold text-xs">Batal</button>
+                    </div>
+                  </div>
+                ` : ''}
+                
+                <!-- List -->
+                <div class="max-h-64 overflow-y-auto border rounded-lg">
+                  ${this.state.data.karyawan.length === 0 ? 
+                    '<div class="p-4 text-center text-gray-400 text-xs">Belum ada karyawan</div>' :
+                    this.state.data.karyawan.map(k => `
+                      <div class="flex items-center justify-between p-2 border-b last:border-0 text-xs hover:bg-gray-50">
+                        <div class="flex items-center gap-2">
+                          <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono font-bold">${k.id}</span>
+                          <span>${k.nama}</span>
+                        </div>
+                        <div class="flex gap-1">
+                          <button onclick="App.startEditKaryawan(${k.id});" class="text-blue-500 hover:text-blue-700 p-1" title="Edit">
+                            <i data-lucide="edit-2" class="w-3 h-3"></i>
+                          </button>
+                          <button onclick="App.deleteKaryawan(${k.id});" class="text-red-500 hover:text-red-700 p-1" title="Hapus">
+                            <i data-lucide="trash-2" class="w-3 h-3"></i>
+                          </button>
+                        </div>
+                      </div>
+                    `).join('')
+                  }
+                </div>
+              </div>
+              
+              <!-- Hapus Data -->
+              <div class="bg-white rounded-xl p-4 border-2 border-red-100">
+                <h3 class="font-bold text-red-600 text-sm mb-2">⚠️ Zona Bahaya</h3>
+                <p class="text-xs text-gray-600 mb-3">Hapus semua data absensi. Tindakan ini tidak dapat dibatalkan.</p>
+                <button onclick="App.deleteAllAbsensi();" class="bg-red-600 text-white px-4 py-2 rounded-lg font-bold text-xs hover:bg-red-700 transition-colors">
+                  Hapus Semua Data Absensi
+                </button>
+              </div>
+            ` : ''}
+          </div>
+        `;
+      },
+
+      // ==================== HELPERS ====================
+      syncForm() {
+        const f = this.state.form;
+        const karyawanId = document.getElementById('inp-karyawan')?.value || '';
+        if (karyawanId) {
+          const karyawan = this.getKaryawanById(karyawanId);
+          if (karyawan) {
+            f.karyawanId = karyawan.id;
+            f.nama = karyawan.nama;
+          }
+        }
+        f.waktuKeluar = document.getElementById('inp-wkeluar')?.value || '';
+        f.waktuMasuk = document.getElementById('inp-wmasuk')?.value || '';
+        f.namaPemberiIzin = document.getElementById('inp-pemberi')?.value || '';
+        f.keperluan = document.getElementById('inp-keperluan')?.value || '';
+      },
+      
+      applyFilter() {
+        this.state.filter.tanggal = document.getElementById('filter-tgl')?.value || '';
+        this.state.filter.nama = document.getElementById('filter-nama')?.value || '';
+        this.render();
+      },
+      
+      attachEvents() {
+        const fotoInput = document.getElementById('inp-foto');
+        if (fotoInput) {
+          fotoInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (file) {
+              const reader = new FileReader();
+              reader.onload = (ev) => {
+                const img = new Image();
+                img.onload = () => {
+                  const canvas = document.createElement('canvas');
+                  const maxSize = 400;
+                  let w = img.width, h = img.height;
+                  if (w > h && w > maxSize) { h = h * maxSize / w; w = maxSize; }
+                  else if (h > maxSize) { w = w * maxSize / h; h = maxSize; }
+                  canvas.width = w; canvas.height = h;
+                  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+                  const compressed = canvas.toDataURL('image/jpeg', 0.5);
+                  this.state.fotoMasuk = compressed;
+                  this.state.fotoPreview = compressed;
+                  this.render();
+                };
+                img.src = ev.target.result;
+              };
+              reader.readAsDataURL(file);
+            }
+          };
+        }
+      },
+
+      // ==================== INIT ====================
+      init() {
+        this.loadLocal();
+        this.render();
+        
+        setInterval(() => {
+          this.state.time = new Date();
+          const el = document.getElementById('clock');
+          if (el) el.textContent = this.formatJam(this.state.time);
+        }, 1000);
+        
+        this.syncFromSheets();
+      }
+    };
+
+    App.init();
+  </script>
+</body>
+</html>
