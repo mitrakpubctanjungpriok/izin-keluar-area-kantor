@@ -10,7 +10,6 @@
     * { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
     body { background: linear-gradient(180deg, #e0f4fc 0%, #b8e4f4 50%, #a8d8ea 100%); min-height: 100vh; }
     .clock { font-family: 'Courier New', monospace; letter-spacing: 2px; }
-    input[type="time"]::-webkit-calendar-picker-indicator { cursor: pointer; }
     .popup-slide-down { animation: slideDown 0.3s ease-out; }
     @keyframes slideDown {
       from { transform: translateY(-100%); opacity: 0; }
@@ -203,15 +202,7 @@
         this.state.fotoPreview = null;
       },
       
-      validateTime(timeStr) {
-        if (!timeStr) return false;
-        const [hour, minute] = timeStr.split(':').map(Number);
-        // Jam kerja 06:00 s/d 18:00
-        if (hour < 6) return false;
-        if (hour > 18) return false;
-        if (hour === 18 && minute > 0) return false;
-        return true;
-      },
+
       
       onSelectKaryawan(value) {
         const karyawan = this.getKaryawanById(value);
@@ -233,10 +224,8 @@
         }
         
         if (!f.karyawanId) return alert('⚠️ Pilih nama terlebih dahulu!');
-        if (!f.waktuKeluar) return alert('⚠️ Isi waktu keluar!');
-        if (!this.validateTime(f.waktuKeluar)) return alert('⚠️ Waktu keluar harus antara jam 06:00 s/d 18:00!');
-        if (!f.waktuMasuk) return alert('⚠️ Isi waktu masuk!');
-        if (!this.validateTime(f.waktuMasuk)) return alert('⚠️ Waktu masuk harus antara jam 06:00 s/d 18:00!');
+        if (!f.waktuKeluar) return alert('⚠️ Pilih waktu keluar!');
+        if (!f.waktuMasuk) return alert('⚠️ Pilih waktu masuk!');
         if (f.waktuMasuk <= f.waktuKeluar) return alert('⚠️ Waktu masuk harus lebih besar dari waktu keluar!');
         if (!f.izinPengawas) return alert('⚠️ Pilih status izin pengawas!');
         if (f.izinPengawas === 'tidak') return alert('⚠️ Anda harus izin kepada pengawas lantai terlebih dahulu!');
@@ -692,9 +681,20 @@
         `;
       },
       
+      // Daftar waktu untuk dropdown (07:00 - 17:00, kelipatan 30 menit)
+      getTimeOptions() {
+        return [
+          '07:00', '07:30', '08:00', '08:30', '09:00', '09:30',
+          '10:00', '10:30', '11:00', '11:30', '12:00', '12:30',
+          '13:00', '13:30', '14:00', '14:30', '15:00', '15:30',
+          '16:00', '16:30', '17:00'
+        ];
+      },
+      
       renderFormKeluar(hasKaryawan) {
         const f = this.state.form;
         const karyawanList = this.state.data.karyawan;
+        const timeOptions = this.getTimeOptions();
         
         return `
           <div class="bg-white rounded-2xl shadow-sm border border-orange-100 p-4">
@@ -712,30 +712,24 @@
               </select>
             </div>
             
-            <!-- Waktu -->
+            <!-- Waktu Dropdown -->
             <div class="grid grid-cols-2 gap-2 mb-3">
               <div>
                 <label class="block text-xs font-bold text-gray-600 mb-1">WAKTU KELUAR *</label>
-                <input type="time" id="inp-wkeluar" value="${f.waktuKeluar}" min="06:00" max="18:00" 
-                  class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
-                <p class="text-xs text-gray-400 mt-0.5">Format 24 jam (06:00 - 18:00)</p>
+                <select id="inp-wkeluar" class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
+                  <option value="">-- Pilih --</option>
+                  ${timeOptions.map(t => `<option value="${t}" ${f.waktuKeluar===t?'selected':''}>${t}</option>`).join('')}
+                </select>
+                <p class="text-xs text-gray-400 mt-0.5">Jam kerja 07:00 - 17:00</p>
               </div>
               <div>
                 <label class="block text-xs font-bold text-gray-600 mb-1">WAKTU MASUK *</label>
-                <input type="time" id="inp-wmasuk" value="${f.waktuMasuk}" min="06:00" max="18:00"
-                  class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
-                <p class="text-xs text-gray-400 mt-0.5">Format 24 jam (06:00 - 18:00)</p>
+                <select id="inp-wmasuk" class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
+                  <option value="">-- Pilih --</option>
+                  ${timeOptions.map(t => `<option value="${t}" ${f.waktuMasuk===t?'selected':''}>${t}</option>`).join('')}
+                </select>
+                <p class="text-xs text-gray-400 mt-0.5">Jam kerja 07:00 - 17:00</p>
               </div>
-            </div>
-            
-            <!-- Petunjuk Format Waktu -->
-            <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
-              <p class="text-xs text-blue-700">
-                <strong>💡 Petunjuk Format Waktu 24 Jam:</strong><br>
-                • Jam 6 pagi = <strong>06:00</strong> &nbsp;|&nbsp; Jam 12 siang = <strong>12:00</strong><br>
-                • Jam 1 siang = <strong>13:00</strong> &nbsp;|&nbsp; Jam 2 siang = <strong>14:00</strong><br>
-                • Jam 3 sore = <strong>15:00</strong> &nbsp;|&nbsp; Jam 6 sore = <strong>18:00</strong>
-              </p>
             </div>
             
             <!-- Izin Pengawas -->
@@ -823,8 +817,8 @@
               <h3 class="font-bold text-blue-700 text-sm mb-2">📋 PANDUAN ABSENSI KELUAR:</h3>
               <ol class="text-xs text-blue-600 space-y-1 list-decimal list-inside">
                 <li>Pilih nama Anda dari daftar (beserta ID)</li>
-                <li>Isi waktu keluar dan waktu kembali <strong>(format 24 jam: 06:00 - 18:00)</strong></li>
-                <li>Contoh: Jam 1 siang = 13:00, Jam 3 sore = 15:00</li>
+                <li>Pilih waktu keluar dan waktu kembali dari dropdown</li>
+                <li>Waktu tersedia: 07:00 - 17:00 (kelipatan 30 menit)</li>
                 <li>Jawab pertanyaan izin (harus YA/SUDAH semua)</li>
                 <li>Isi nama pegawai yang memberi izin</li>
                 <li>Tulis keperluan keluar secara spesifik</li>
@@ -1026,7 +1020,7 @@
               <p class="text-2xl font-bold text-orange-600">${keluar}</p>
             </div>
             <div class="bg-white rounded-xl p-3 border-l-4 border-purple-500">
-              <p class="text-gray-500 text-xs">Absensi Karyawan</p>
+              <p class="text-gray-500 text-xs">Karyawan Unik</p>
               <p class="text-2xl font-bold text-purple-600">${unik}</p>
             </div>
           </div>
