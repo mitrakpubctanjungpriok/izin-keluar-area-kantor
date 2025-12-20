@@ -23,7 +23,7 @@
 
   <script>
     // ==================== KONFIGURASI ====================
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbw7_niqatZ1Rj_Y432YcmPL-BUQNd52npK8DrFjnDSZPcpuJfkvJOMM7oOrrw6LpwC-/exec';
+    const SCRIPT_URL = 'https://script.google.com/macros/s/YOUR_SCRIPT_ID/exec';
     
     // ==================== STATE ====================
     const App = {
@@ -36,10 +36,11 @@
         syncing: false,
         connected: false,
         showConnectionPopup: true,
+        submitting: false, // Mencegah double submit
         notificationEmail: 'mitrakpubctanjungpriok@gmail.com',
         
         form: {
-          karyawanId: '',
+          Id: '',
           nama: '',
           waktuKeluar: '',
           waktuMasuk: '',
@@ -171,7 +172,7 @@
       // ==================== FORM HANDLERS ====================
       resetForm() {
         this.state.form = {
-          karyawanId: '', nama: '', waktuKeluar: '', waktuMasuk: '',
+          Id: '', nama: '', waktuKeluar: '', waktuMasuk: '',
           izinPengawas: '', izinSubbag: '', izinPegawai: '',
           namaPemberiIzin: '', keperluan: ''
         };
@@ -192,20 +193,23 @@
       onSelectKaryawan(value) {
         const karyawan = this.getKaryawanById(value);
         if (karyawan) {
-          this.state.form.karyawanId = karyawan.id;
+          this.state.form.Id = karyawan.id;
           this.state.form.nama = karyawan.nama;
         }
         this.render();
       },
       
       async submitKeluar() {
+        // Cegah double submit
+        if (this.state.submitting) return;
+        
         const f = this.state.form;
         
         if (!this.state.connected || this.state.data.karyawan.length === 0) {
           return alert('⚠️ Tidak dapat submit! Database tidak terhubung.');
         }
         
-        if (!f.karyawanId) return alert('⚠️ Pilih nama terlebih dahulu!');
+        if (!f.Id) return alert('⚠️ Pilih nama terlebih dahulu!');
         if (!f.waktuKeluar) return alert('⚠️ Isi waktu keluar!');
         if (!this.validateTime(f.waktuKeluar)) return alert('⚠️ Waktu keluar harus antara jam 06:00 s/d 18:00!');
         if (!f.waktuMasuk) return alert('⚠️ Isi waktu masuk!');
@@ -220,9 +224,13 @@
         if (f.izinPegawai === 'sudah' && !f.namaPemberiIzin.trim()) return alert('⚠️ Isi nama pegawai yang memberi izin!');
         if (!f.keperluan.trim()) return alert('⚠️ Isi keperluan!');
         
+        // Set submitting state
+        this.state.submitting = true;
+        this.render();
+        
         const now = new Date();
         const absen = {
-          karyawanId: f.karyawanId,
+          Id: f.Id,
           nama: f.nama,
           tipe: 'keluar',
           waktuKeluar: f.waktuKeluar,
@@ -241,12 +249,18 @@
         this.saveLocal();
         await this.saveToSheets('addAbsensi', { data: absen });
         
-        alert(`✅ ${f.nama} (ID: ${f.karyawanId}) berhasil absen keluar!\n\nWaktu Keluar: ${f.waktuKeluar}\nWaktu Masuk: ${f.waktuMasuk}`);
+        // Reset submitting state
+        this.state.submitting = false;
+        
+        alert(`✅ ${f.nama} (ID: ${f.Id}) berhasil absen keluar!\n\nWaktu Keluar: ${f.waktuKeluar}\nWaktu Masuk: ${f.waktuMasuk}`);
         this.resetForm();
         this.render();
       },
       
-      async submitMasuk(karyawanId) {
+      async submitMasuk(Id) {
+        // Cegah double submit
+        if (this.state.submitting) return;
+        
         if (!this.state.connected || this.state.data.karyawan.length === 0) {
           return alert('⚠️ Tidak dapat submit! Database tidak terhubung.');
         }
@@ -255,12 +269,16 @@
           return alert('⚠️ Ambil foto terlebih dahulu!');
         }
         
-        const karyawan = this.getKaryawanById(karyawanId);
+        const karyawan = this.getKaryawanById(Id);
         if (!karyawan) return alert('⚠️ Karyawan tidak ditemukan!');
+        
+        // Set submitting state
+        this.state.submitting = true;
+        this.render();
         
         const now = new Date();
         const absen = {
-          karyawanId: karyawan.id,
+          Id: karyawan.id,
           nama: karyawan.nama,
           tipe: 'masuk',
           waktuKeluar: '-',
@@ -278,6 +296,9 @@
         this.state.data.absensi.unshift(absen);
         this.saveLocal();
         await this.saveToSheets('addAbsensi', { data: absen });
+        
+        // Reset submitting state
+        this.state.submitting = false;
         
         alert(`✅ ${karyawan.nama} (ID: ${karyawan.id}) berhasil absen masuk!\nFoto tersimpan di database.`);
         this.state.fotoMasuk = null;
@@ -424,7 +445,7 @@
         
         const headers = ['Tanggal','Jam','ID Karyawan','Nama','Tipe','Waktu Keluar','Waktu Masuk','Izin Pengawas','Izin Subbag','Izin Pegawai','Nama Pemberi Izin','Keperluan'];
         const rows = data.map(a => [
-          a.tanggal, a.jam, a.karyawanId || '-', a.nama, a.tipe.toUpperCase(),
+          a.tanggal, a.jam, a.Id || '-', a.nama, a.tipe.toUpperCase(),
           a.waktuKeluar, a.waktuMasuk, a.izinPengawas, a.izinSubbag,
           a.izinPegawai, a.namaPemberiIzin, a.keperluan
         ]);
@@ -450,7 +471,7 @@
         }
         if (f.nama) {
           const search = f.nama.toUpperCase();
-          data = data.filter(a => a.nama.includes(search) || (a.karyawanId && a.karyawanId.toString().includes(search)));
+          data = data.filter(a => a.nama.includes(search) || (a.Id && a.Id.toString().includes(search)));
         }
         return data;
       },
@@ -579,7 +600,7 @@
               <label class="block text-xs font-bold text-gray-600 mb-1">NAMA KARYAWAN *</label>
               <select id="inp-karyawan" class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
                 <option value="">${hasKaryawan ? '-- PILIH NAMA --' : '-- TIDAK TERSEDIA (DATABASE TIDAK TERHUBUNG) --'}</option>
-                ${karyawanList.map(k => `<option value="${k.id}" ${f.karyawanId==k.id?'selected':''}>[${k.id}] ${k.nama}</option>`).join('')}
+                ${karyawanList.map(k => `<option value="${k.id}" ${f.Id==k.id?'selected':''}>[${k.id}] ${k.nama}</option>`).join('')}
               </select>
             </div>
             
@@ -666,9 +687,17 @@
             
             <!-- Submit -->
             <button onclick="App.syncForm();App.submitKeluar();" 
-              class="w-full ${hasKaryawan ? 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700' : 'bg-gray-300 cursor-not-allowed'} text-white p-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md" ${!hasKaryawan ? 'disabled' : ''}>
-              <i data-lucide="send" class="w-5 h-5"></i>
-              SUBMIT ABSENSI KELUAR
+              class="w-full ${hasKaryawan && !this.state.submitting ? 'bg-gradient-to-r from-orange-500 to-orange-600 hover:from-orange-600 hover:to-orange-700' : 'bg-gray-400 cursor-not-allowed'} text-white p-3 rounded-xl font-bold flex items-center justify-center gap-2 transition-all shadow-md" ${!hasKaryawan || this.state.submitting ? 'disabled' : ''}>
+              ${this.state.submitting ? `
+                <svg class="animate-spin w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                MENGIRIM...
+              ` : `
+                <i data-lucide="send" class="w-5 h-5"></i>
+                SUBMIT ABSENSI KELUAR
+              `}
             </button>
             
             <!-- Panduan -->
@@ -730,18 +759,28 @@
               <label class="block text-xs font-bold text-gray-600 mb-2">PILIH NAMA UNTUK ABSEN MASUK:</label>
               ${!hasKaryawan ? '<p class="text-xs text-red-500 mb-2">⚠️ Daftar nama tidak tersedia karena database tidak terhubung</p>' : ''}
             </div>
-            <div class="grid grid-cols-1 gap-1.5 max-h-64 overflow-y-auto pr-1">
-              ${hasKaryawan ? karyawanList.map(k => `
-                <button onclick="App.submitMasuk(${k.id})" 
-                  class="p-2.5 bg-gray-50 border border-green-200 rounded-lg font-semibold text-xs text-gray-700 flex items-center justify-between hover:bg-green-50 hover:border-green-400 transition-all">
-                  <span class="flex items-center gap-2">
-                    <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono text-xs">${k.id}</span>
-                    <span class="truncate">${k.nama}</span>
-                  </span>
-                  <i data-lucide="check-circle" class="w-4 h-4 text-green-500 flex-shrink-0"></i>
-                </button>
-              `).join('') : '<p class="col-span-2 text-center text-gray-400 py-8">Daftar nama kosong</p>'}
-            </div>
+            ${this.state.submitting ? `
+              <div class="flex items-center justify-center py-8 gap-3">
+                <svg class="animate-spin w-6 h-6 text-green-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                  <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                  <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                </svg>
+                <span class="text-green-600 font-bold">MENGIRIM...</span>
+              </div>
+            ` : `
+              <div class="grid grid-cols-1 gap-1.5 max-h-64 overflow-y-auto pr-1">
+                ${hasKaryawan ? karyawanList.map(k => `
+                  <button onclick="App.submitMasuk(${k.id})" 
+                    class="p-2.5 bg-gray-50 border border-green-200 rounded-lg font-semibold text-xs text-gray-700 flex items-center justify-between hover:bg-green-50 hover:border-green-400 transition-all">
+                    <span class="flex items-center gap-2">
+                      <span class="bg-blue-100 text-blue-700 px-2 py-0.5 rounded font-mono text-xs">${k.id}</span>
+                      <span class="truncate">${k.nama}</span>
+                    </span>
+                    <i data-lucide="check-circle" class="w-4 h-4 text-green-500 flex-shrink-0"></i>
+                  </button>
+                `).join('') : '<p class="col-span-2 text-center text-gray-400 py-8">Daftar nama kosong</p>'}
+              </div>
+            `}
             
             <!-- Panduan -->
             <div class="mt-4 p-3 bg-green-50 border border-green-100 rounded-xl">
@@ -923,7 +962,7 @@
                   ` : data.slice(0,50).map(a => `
                     <tr class="hover:bg-gray-50">
                       <td class="px-2 py-2">${a.tanggal}<br><span class="text-gray-400">${a.jam}</span></td>
-                      <td class="px-2 py-2"><span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono text-xs">${a.karyawanId || '-'}</span></td>
+                      <td class="px-2 py-2"><span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono text-xs">${a.Id || '-'}</span></td>
                       <td class="px-2 py-2 font-medium">${a.nama}</td>
                       <td class="px-2 py-2">
                         <span class="px-1.5 py-0.5 rounded text-xs font-bold ${a.tipe==='masuk' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">
@@ -1045,11 +1084,11 @@
       // ==================== HELPERS ====================
       syncForm() {
         const f = this.state.form;
-        const karyawanId = document.getElementById('inp-karyawan')?.value || '';
-        if (karyawanId) {
-          const karyawan = this.getKaryawanById(karyawanId);
+        const Id = document.getElementById('inp-karyawan')?.value || '';
+        if (Id) {
+          const karyawan = this.getKaryawanById(Id);
           if (karyawan) {
-            f.karyawanId = karyawan.id;
+            f.Id = karyawan.id;
             f.nama = karyawan.nama;
           }
         }
