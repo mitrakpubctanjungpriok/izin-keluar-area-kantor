@@ -36,11 +36,13 @@
         syncing: false,
         connected: false,
         showConnectionPopup: true,
+        initialLoading: true, // Loading awal saat buka website
         submitting: false, // Mencegah double submit
         notificationEmail: 'mitrakpubctanjungpriok@gmail.com',
+        weekendOff: true, // Sabtu-Minggu libur (default: aktif)
         
         form: {
-          Id: '',
+          karyawanId: '',
           nama: '',
           waktuKeluar: '',
           waktuMasuk: '',
@@ -93,6 +95,7 @@
       saveLocal() {
         localStorage.setItem('izinKeluar_data', JSON.stringify(this.state.data));
         localStorage.setItem('izinKeluar_email', this.state.notificationEmail);
+        localStorage.setItem('izinKeluar_weekendOff', this.state.weekendOff.toString());
       },
       
       loadLocal() {
@@ -105,11 +108,16 @@
         if (savedEmail) {
           this.state.notificationEmail = savedEmail;
         }
+        const savedWeekendOff = localStorage.getItem('izinKeluar_weekendOff');
+        if (savedWeekendOff !== null) {
+          this.state.weekendOff = savedWeekendOff === 'true';
+        }
       },
 
       // ==================== CONNECTION POPUP ====================
       showPopup(connected) {
         this.state.connected = connected;
+        this.state.initialLoading = false; // Loading selesai
         this.state.showConnectionPopup = true;
         this.render();
         
@@ -122,35 +130,50 @@
       },
 
       // ==================== GOOGLE SHEETS ====================
-      async syncFromSheets() {
+      async syncFromSheets(silent = false) {
         if (SCRIPT_URL.includes('YOUR_SCRIPT_ID')) {
-          this.showPopup(false);
+          if (!silent) this.showPopup(false);
           return;
         }
         
         try {
-          this.state.syncing = true;
-          this.render();
+          if (!silent) {
+            this.state.syncing = true;
+            this.render();
+          }
           
           const res = await fetch(SCRIPT_URL + '?action=getAll');
           const data = await res.json();
           
           if (data.success) {
+            // Check if data changed (for silent refresh)
+            const oldCount = this.state.data.absensi.length;
+            const newCount = data.absensi ? data.absensi.length : 0;
+            
             if (data.absensi) this.state.data.absensi = data.absensi;
             if (data.karyawan) this.state.data.karyawan = data.karyawan;
             if (data.passwords) this.state.data.passwords = data.passwords;
             if (data.email) this.state.notificationEmail = data.email;
+            if (data.weekendOff !== undefined) this.state.weekendOff = data.weekendOff;
             this.saveLocal();
-            this.showPopup(true);
+            
+            if (!silent) {
+              this.showPopup(true);
+            } else if (oldCount !== newCount) {
+              // Re-render only if data changed during silent refresh
+              this.render();
+            }
           } else {
-            this.showPopup(false);
+            if (!silent) this.showPopup(false);
           }
         } catch (e) {
           console.error('Sync error:', e);
-          this.showPopup(false);
+          if (!silent) this.showPopup(false);
         } finally {
-          this.state.syncing = false;
-          this.render();
+          if (!silent) {
+            this.state.syncing = false;
+            this.render();
+          }
         }
       },
       
@@ -172,7 +195,7 @@
       // ==================== FORM HANDLERS ====================
       resetForm() {
         this.state.form = {
-          Id: '', nama: '', waktuKeluar: '', waktuMasuk: '',
+          karyawanId: '', nama: '', waktuKeluar: '', waktuMasuk: '',
           izinPengawas: '', izinSubbag: '', izinPegawai: '',
           namaPemberiIzin: '', keperluan: ''
         };
@@ -193,7 +216,7 @@
       onSelectKaryawan(value) {
         const karyawan = this.getKaryawanById(value);
         if (karyawan) {
-          this.state.form.Id = karyawan.id;
+          this.state.form.karyawanId = karyawan.id;
           this.state.form.nama = karyawan.nama;
         }
         this.render();
@@ -209,7 +232,7 @@
           return alert('⚠️ Tidak dapat submit! Database tidak terhubung.');
         }
         
-        if (!f.Id) return alert('⚠️ Pilih nama terlebih dahulu!');
+        if (!f.karyawanId) return alert('⚠️ Pilih nama terlebih dahulu!');
         if (!f.waktuKeluar) return alert('⚠️ Isi waktu keluar!');
         if (!this.validateTime(f.waktuKeluar)) return alert('⚠️ Waktu keluar harus antara jam 06:00 s/d 18:00!');
         if (!f.waktuMasuk) return alert('⚠️ Isi waktu masuk!');
@@ -230,7 +253,7 @@
         
         const now = new Date();
         const absen = {
-          Id: f.Id,
+          karyawanId: f.karyawanId,
           nama: f.nama,
           tipe: 'keluar',
           waktuKeluar: f.waktuKeluar,
@@ -252,12 +275,12 @@
         // Reset submitting state
         this.state.submitting = false;
         
-        alert(`✅ ${f.nama} (ID: ${f.Id}) berhasil absen keluar!\n\nWaktu Keluar: ${f.waktuKeluar}\nWaktu Masuk: ${f.waktuMasuk}`);
+        alert(`✅ ${f.nama} (ID: ${f.karyawanId}) berhasil absen keluar!\n\nWaktu Keluar: ${f.waktuKeluar}\nWaktu Masuk: ${f.waktuMasuk}`);
         this.resetForm();
         this.render();
       },
       
-      async submitMasuk(Id) {
+      async submitMasuk(karyawanId) {
         // Cegah double submit
         if (this.state.submitting) return;
         
@@ -269,7 +292,7 @@
           return alert('⚠️ Ambil foto terlebih dahulu!');
         }
         
-        const karyawan = this.getKaryawanById(Id);
+        const karyawan = this.getKaryawanById(karyawanId);
         if (!karyawan) return alert('⚠️ Karyawan tidak ditemukan!');
         
         // Set submitting state
@@ -278,7 +301,7 @@
         
         const now = new Date();
         const absen = {
-          Id: karyawan.id,
+          karyawanId: karyawan.id,
           nama: karyawan.nama,
           tipe: 'masuk',
           waktuKeluar: '-',
@@ -319,11 +342,13 @@
           this.state.page = 'dashboard';
           this.state.tab = 'stats';
           this.syncFromSheets();
+          this.startAutoRefresh(); // Start auto refresh for dashboard
         } else if (pwd === this.state.data.passwords.pkd) {
           this.state.role = 'pkd';
           this.state.page = 'dashboard';
           this.state.tab = 'history';
           this.syncFromSheets();
+          this.startAutoRefresh(); // Start auto refresh for dashboard
         } else {
           alert('⚠️ Password salah!');
           return;
@@ -335,6 +360,7 @@
         this.state.role = '';
         this.state.page = 'home';
         this.state.editKaryawan = null;
+        this.stopAutoRefresh(); // Stop auto refresh when logout
         this.render();
       },
       
@@ -353,6 +379,14 @@
         this.saveLocal();
         this.saveToSheets('updateEmail', { email: newEmail });
         alert('✅ Email notifikasi berhasil diubah!');
+        this.render();
+      },
+      
+      toggleWeekendOff() {
+        this.state.weekendOff = !this.state.weekendOff;
+        this.saveLocal();
+        this.saveToSheets('updateWeekendOff', { weekendOff: this.state.weekendOff });
+        alert(`✅ Libur Sabtu-Minggu ${this.state.weekendOff ? 'DIAKTIFKAN' : 'DINONAKTIFKAN'}!`);
         this.render();
       },
       
@@ -443,9 +477,9 @@
         let data = this.getFilteredAbsensi();
         if (!data.length) return alert('Tidak ada data untuk di-export!');
         
-        const headers = ['Tanggal','Jam','ID Karyawan','Nama','Tipe','Waktu Keluar','Waktu Masuk','Izin Pengawas','Izin Subbag','Izin Pegawai','Nama Pemberi Izin','Keperluan'];
+        const headers = ['Tanggal','Jam','ID','Nama','Tipe','Waktu Keluar','Waktu Masuk','Izin Pengawas','Izin Subbag','Izin Pegawai','Nama Pemberi Izin','Keperluan'];
         const rows = data.map(a => [
-          a.tanggal, a.jam, a.Id || '-', a.nama, a.tipe.toUpperCase(),
+          a.tanggal, a.jam, a.karyawanId || '-', a.nama, a.tipe.toUpperCase(),
           a.waktuKeluar, a.waktuMasuk, a.izinPengawas, a.izinSubbag,
           a.izinPegawai, a.namaPemberiIzin, a.keperluan
         ]);
@@ -471,7 +505,7 @@
         }
         if (f.nama) {
           const search = f.nama.toUpperCase();
-          data = data.filter(a => a.nama.includes(search) || (a.Id && a.Id.toString().includes(search)));
+          data = data.filter(a => a.nama.includes(search) || (a.karyawanId && a.karyawanId.toString().includes(search)));
         }
         return data;
       },
@@ -494,9 +528,66 @@
         lucide.createIcons();
       },
 
+      // ==================== CEK HARI LIBUR ====================
+      isWeekend() {
+        // Jika fitur libur dimatikan, selalu return false
+        if (!this.state.weekendOff) return false;
+        
+        const day = new Date().getDay();
+        return day === 0 || day === 6; // 0 = Minggu, 6 = Sabtu
+      },
+      
+      renderWeekendPage() {
+        const now = new Date();
+        const day = now.getDay();
+        const dayName = day === 0 ? 'MINGGU' : 'SABTU';
+        
+        return `
+          <div class="min-h-screen flex items-center justify-center p-4">
+            <div class="bg-white rounded-2xl shadow-lg border border-red-200 p-8 max-w-md w-full text-center">
+              <div class="w-20 h-20 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <i data-lucide="calendar-off" class="w-10 h-10 text-red-500"></i>
+              </div>
+              <h1 class="text-2xl font-extrabold text-gray-800 mb-2">HARI LIBUR</h1>
+              <p class="text-red-600 font-bold text-lg mb-4">HARI ${dayName}</p>
+              <div class="bg-red-50 border border-red-200 rounded-xl p-4 mb-4">
+                <p class="text-gray-700 text-sm">
+                  Sistem <strong>IZIN KELUAR AREA</strong> tidak beroperasi di hari <strong>Sabtu</strong> dan <strong>Minggu</strong>.
+                </p>
+              </div>
+              <div class="bg-blue-50 border border-blue-200 rounded-xl p-4">
+                <p class="text-blue-700 text-sm font-medium">
+                  📅 Sistem beroperasi:<br>
+                  <strong>Senin - Jumat</strong><br>
+                  Jam 06:00 s/d 18:00 WIB
+                </p>
+              </div>
+              <div class="mt-6 pt-4 border-t border-gray-200">
+                <p class="text-xs text-gray-500">MITRA KPU BEA CUKAI TANJUNG PRIOK</p>
+                <p class="text-xs text-gray-400 mt-1">${this.formatTanggal(now)} - ${this.formatJam(now)}</p>
+              </div>
+              
+              <!-- Tombol Admin Login (kecil di bawah) -->
+              <button onclick="App.state.page='login';App.render();" 
+                class="mt-4 text-xs text-gray-400 hover:text-gray-600 flex items-center justify-center gap-1 mx-auto">
+                <i data-lucide="lock" class="w-3 h-3"></i>
+                Admin Login
+              </button>
+            </div>
+          </div>
+        `;
+      },
+
       // ==================== RENDER ====================
       render() {
         const app = document.getElementById('app');
+        
+        // Cek hari libur (Sabtu/Minggu) - kecuali halaman login/dashboard server
+        if (this.isWeekend() && this.state.page === 'home') {
+          app.innerHTML = this.renderWeekendPage();
+          lucide.createIcons();
+          return;
+        }
         
         if (this.state.page === 'home') {
           app.innerHTML = this.renderHome();
@@ -511,6 +602,23 @@
       },
       
       renderConnectionPopup() {
+        // Tampilkan loading saat initial loading
+        if (this.state.initialLoading) {
+          return `
+            <div class="fixed top-0 left-0 right-0 z-50 popup-slide-down">
+              <div class="max-w-md mx-auto p-2">
+                <div class="bg-blue-500 text-white px-4 py-3 rounded-b-xl shadow-lg flex items-center justify-center gap-3">
+                  <svg class="animate-spin w-5 h-5" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                  </svg>
+                  <span class="font-medium text-sm">Menghubungkan ke Database...</span>
+                </div>
+              </div>
+            </div>
+          `;
+        }
+        
         if (!this.state.showConnectionPopup && this.state.connected) return '';
         
         const isConnected = this.state.connected;
@@ -542,7 +650,7 @@
         return `
           ${this.renderConnectionPopup()}
           
-          <div class="min-h-screen p-3 md:p-4 ${this.state.showConnectionPopup || !this.state.connected ? 'pt-16' : ''}">
+          <div class="min-h-screen p-3 md:p-4 ${this.state.initialLoading || this.state.showConnectionPopup || !this.state.connected ? 'pt-16' : ''}">
             <div class="max-w-md mx-auto">
               
               <!-- Header -->
@@ -600,7 +708,7 @@
               <label class="block text-xs font-bold text-gray-600 mb-1">NAMA KARYAWAN *</label>
               <select id="inp-karyawan" class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
                 <option value="">${hasKaryawan ? '-- PILIH NAMA --' : '-- TIDAK TERSEDIA (DATABASE TIDAK TERHUBUNG) --'}</option>
-                ${karyawanList.map(k => `<option value="${k.id}" ${f.Id==k.id?'selected':''}>[${k.id}] ${k.nama}</option>`).join('')}
+                ${karyawanList.map(k => `<option value="${k.id}" ${f.karyawanId==k.id?'selected':''}>[${k.id}] ${k.nama}</option>`).join('')}
               </select>
             </div>
             
@@ -610,14 +718,24 @@
                 <label class="block text-xs font-bold text-gray-600 mb-1">WAKTU KELUAR *</label>
                 <input type="time" id="inp-wkeluar" value="${f.waktuKeluar}" min="06:00" max="18:00" 
                   class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
-                <p class="text-xs text-gray-400 mt-0.5">Jam 06:00 s/d 18:00</p>
+                <p class="text-xs text-gray-400 mt-0.5">Format 24 jam (06:00 - 18:00)</p>
               </div>
               <div>
                 <label class="block text-xs font-bold text-gray-600 mb-1">WAKTU MASUK *</label>
                 <input type="time" id="inp-wmasuk" value="${f.waktuMasuk}" min="06:00" max="18:00"
                   class="w-full p-2.5 bg-gray-50 border border-gray-200 rounded-lg text-sm focus:border-orange-400 focus:ring-1 focus:ring-orange-200 outline-none" ${!hasKaryawan ? 'disabled' : ''}>
-                <p class="text-xs text-gray-400 mt-0.5">Jam 06:00 s/d 18:00</p>
+                <p class="text-xs text-gray-400 mt-0.5">Format 24 jam (06:00 - 18:00)</p>
               </div>
+            </div>
+            
+            <!-- Petunjuk Format Waktu -->
+            <div class="mb-3 p-2 bg-blue-50 border border-blue-200 rounded-lg">
+              <p class="text-xs text-blue-700">
+                <strong>💡 Petunjuk Format Waktu 24 Jam:</strong><br>
+                • Jam 6 pagi = <strong>06:00</strong> &nbsp;|&nbsp; Jam 12 siang = <strong>12:00</strong><br>
+                • Jam 1 siang = <strong>13:00</strong> &nbsp;|&nbsp; Jam 2 siang = <strong>14:00</strong><br>
+                • Jam 3 sore = <strong>15:00</strong> &nbsp;|&nbsp; Jam 6 sore = <strong>18:00</strong>
+              </p>
             </div>
             
             <!-- Izin Pengawas -->
@@ -705,7 +823,8 @@
               <h3 class="font-bold text-blue-700 text-sm mb-2">📋 PANDUAN ABSENSI KELUAR:</h3>
               <ol class="text-xs text-blue-600 space-y-1 list-decimal list-inside">
                 <li>Pilih nama Anda dari daftar (beserta ID)</li>
-                <li>Isi waktu keluar dan waktu kembali (jam 06:00 s/d 18:00)</li>
+                <li>Isi waktu keluar dan waktu kembali <strong>(format 24 jam: 06:00 - 18:00)</strong></li>
+                <li>Contoh: Jam 1 siang = 13:00, Jam 3 sore = 15:00</li>
                 <li>Jawab pertanyaan izin (harus YA/SUDAH semua)</li>
                 <li>Isi nama pegawai yang memberi izin</li>
                 <li>Tulis keperluan keluar secara spesifik</li>
@@ -834,12 +953,18 @@
                 <div class="flex items-center justify-between">
                   <div>
                     <h1 class="text-base font-bold text-gray-800">Dashboard Server</h1>
-                    <span class="text-xs font-bold px-2 py-0.5 rounded ${this.state.role==='admin' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">
-                      ${this.state.role.toUpperCase()}
-                    </span>
+                    <div class="flex items-center gap-2">
+                      <span class="text-xs font-bold px-2 py-0.5 rounded ${this.state.role==='admin' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">
+                        ${this.state.role.toUpperCase()}
+                      </span>
+                      <span class="text-xs text-green-600 flex items-center gap-1">
+                        <span class="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
+                        Auto-refresh aktif
+                      </span>
+                    </div>
                   </div>
                   <div class="flex gap-2">
-                    <button onclick="App.syncFromSheets();" class="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors" title="Refresh">
+                    <button onclick="App.syncFromSheets();" class="p-2 bg-gray-100 rounded-lg hover:bg-gray-200 transition-colors" title="Refresh Manual">
                       <i data-lucide="refresh-cw" class="w-4 h-4 text-gray-600 ${this.state.syncing?'animate-spin':''}"></i>
                     </button>
                     <button onclick="App.logout();" class="bg-red-500 text-white px-3 py-1.5 rounded-lg font-bold text-xs hover:bg-red-600 transition-colors">
@@ -901,7 +1026,7 @@
               <p class="text-2xl font-bold text-orange-600">${keluar}</p>
             </div>
             <div class="bg-white rounded-xl p-3 border-l-4 border-purple-500">
-              <p class="text-gray-500 text-xs">Karyawan Unik</p>
+              <p class="text-gray-500 text-xs">Absensi Karyawan</p>
               <p class="text-2xl font-bold text-purple-600">${unik}</p>
             </div>
           </div>
@@ -962,7 +1087,7 @@
                   ` : data.slice(0,50).map(a => `
                     <tr class="hover:bg-gray-50">
                       <td class="px-2 py-2">${a.tanggal}<br><span class="text-gray-400">${a.jam}</span></td>
-                      <td class="px-2 py-2"><span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono text-xs">${a.Id || '-'}</span></td>
+                      <td class="px-2 py-2"><span class="bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded font-mono text-xs">${a.karyawanId || '-'}</span></td>
                       <td class="px-2 py-2 font-medium">${a.nama}</td>
                       <td class="px-2 py-2">
                         <span class="px-1.5 py-0.5 rounded text-xs font-bold ${a.tipe==='masuk' ? 'bg-green-100 text-green-700' : 'bg-orange-100 text-orange-700'}">
@@ -1018,6 +1143,25 @@
             </div>
             
             ${this.state.role === 'admin' ? `
+              <!-- Libur Sabtu-Minggu -->
+              <div class="bg-white rounded-xl p-4">
+                <div class="flex items-center justify-between">
+                  <div>
+                    <h3 class="font-bold text-gray-800 text-sm">📅 Libur Sabtu & Minggu</h3>
+                    <p class="text-xs text-gray-500 mt-1">Website tidak bisa diakses karyawan di hari Sabtu dan Minggu</p>
+                  </div>
+                  <button onclick="App.toggleWeekendOff();" 
+                    class="relative w-14 h-7 rounded-full transition-colors ${this.state.weekendOff ? 'bg-green-500' : 'bg-gray-300'}">
+                    <span class="absolute top-1 ${this.state.weekendOff ? 'right-1' : 'left-1'} w-5 h-5 bg-white rounded-full shadow transition-all"></span>
+                  </button>
+                </div>
+                <div class="mt-3 p-2 rounded-lg ${this.state.weekendOff ? 'bg-green-50 border border-green-200' : 'bg-gray-50 border border-gray-200'}">
+                  <p class="text-xs ${this.state.weekendOff ? 'text-green-700' : 'text-gray-600'}">
+                    <strong>Status:</strong> ${this.state.weekendOff ? '✅ AKTIF - Website libur di Sabtu & Minggu' : '❌ NONAKTIF - Website buka setiap hari'}
+                  </p>
+                </div>
+              </div>
+            
               <!-- Karyawan -->
               <div class="bg-white rounded-xl p-4">
                 <h3 class="font-bold text-gray-800 text-sm mb-3">👥 Kelola Karyawan (${this.state.data.karyawan.length})</h3>
@@ -1084,11 +1228,11 @@
       // ==================== HELPERS ====================
       syncForm() {
         const f = this.state.form;
-        const Id = document.getElementById('inp-karyawan')?.value || '';
-        if (Id) {
-          const karyawan = this.getKaryawanById(Id);
+        const karyawanId = document.getElementById('inp-karyawan')?.value || '';
+        if (karyawanId) {
+          const karyawan = this.getKaryawanById(karyawanId);
           if (karyawan) {
-            f.Id = karyawan.id;
+            f.karyawanId = karyawan.id;
             f.nama = karyawan.nama;
           }
         }
@@ -1131,6 +1275,58 @@
               reader.readAsDataURL(file);
             }
           };
+        }
+      },
+
+      // ==================== AUTO REFRESH DASHBOARD ====================
+      startAutoRefresh() {
+        // Clear existing interval if any
+        if (this.autoRefreshInterval) {
+          clearInterval(this.autoRefreshInterval);
+        }
+        
+        // Auto refresh setiap 10 detik di dashboard server
+        this.autoRefreshInterval = setInterval(() => {
+          if (this.state.page === 'dashboard' && !this.state.syncing) {
+            this.syncFromSheets(true); // silent refresh (no popup)
+          }
+        }, 10000); // 10 detik
+      },
+      
+      stopAutoRefresh() {
+        if (this.autoRefreshInterval) {
+          clearInterval(this.autoRefreshInterval);
+          this.autoRefreshInterval = null;
+        }
+      },
+      
+      // Modified sync function with silent option
+      async syncFromSheetsSilent() {
+        if (SCRIPT_URL.includes('YOUR_SCRIPT_ID')) return;
+        
+        try {
+          const res = await fetch(SCRIPT_URL + '?action=getAll');
+          const data = await res.json();
+          
+          if (data.success) {
+            // Check if data changed
+            const oldCount = this.state.data.absensi.length;
+            const newCount = data.absensi ? data.absensi.length : 0;
+            
+            if (data.absensi) this.state.data.absensi = data.absensi;
+            if (data.karyawan) this.state.data.karyawan = data.karyawan;
+            if (data.passwords) this.state.data.passwords = data.passwords;
+            if (data.email) this.state.notificationEmail = data.email;
+            if (data.weekendOff !== undefined) this.state.weekendOff = data.weekendOff;
+            this.saveLocal();
+            
+            // Only re-render if data changed
+            if (oldCount !== newCount) {
+              this.render();
+            }
+          }
+        } catch (e) {
+          console.error('Silent sync error:', e);
         }
       },
 
